@@ -24,7 +24,7 @@
     <ClInclude Include="..\..\..\..\%40KProjects\K_Injector\KInjector\hook\detours.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\..\%40KProjects\K_Injector\KInjector\hook\Api.hpp">
+    <ClInclude Include="..\..\..\..\%40KProjects\K_Injector\KInjector\hook\Api.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -159,7 +159,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\..\..\%40KProjects\K_Injector\KInjector\hook\Api.hpp" />
+    <ClInclude Include="..\..\..\..\%40KProjects\K_Injector\KInjector\hook\Api.h" />
     <ClInclude Include="..\..\..\..\%40KProjects\K_Injector\KInjector\hook\detours.h" />
     <ClInclude Include="..\..\..\..\%40KProjects\K_Injector\KInjector\hook\framework.h" />
     <ClInclude Include="..\..\..\..\%40KProjects\K_Injector\KInjector\hook\pch.h" />
