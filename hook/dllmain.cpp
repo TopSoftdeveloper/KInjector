@@ -32,10 +32,20 @@ void mainhook() {
 	//InstallHook("windows.storage.search.dll", "SHCreateAutoList", (LPVOID*)& originalSHCreateAutoList, HookedSHCreateAutoList);
 	//InstallHook("windows.storage.search.dll", "SHCreateAutoListWithID", (LPVOID*)& originSHCreateAutoListWithID, HookedSHCreateAutoListWithID);
 	//InstallHook("windows.storage.search.dll", "SHCreateScope", (LPVOID*)& originalSHCreateScope, HookedSHCreateScope);
-	InstallHook("windows.storage.search.dll", "SHCreateScopeItemFromShellItem", (LPVOID*)& originalSHCreateScopeItemFromShellItem, HookedSHCreateScopeItemFromShellItem);
-	InstallHook("KERNELBASE.dll", "RegCreateKeyExW", (LPVOID*)& OriginalRegCreateKeyExW, HookedRegCreateKeyExW);
-	InstallHook("KERNELBASE.dll", "RegSetValueExW", (LPVOID*)& OriginalRegSetValueExW, HookedRegSetValueExW);
-	InstallHook("SHLWAPI.dll", "PathIsDirectoryW", (LPVOID*)& TruePathIsDirectoryW, DetourPathIsDirectoryW);
+	//InstallHook("windows.storage.search.dll", "SHCreateScopeItemFromShellItem", (LPVOID*)& originalSHCreateScopeItemFromShellItem, HookedSHCreateScopeItemFromShellItem);
+	//InstallHook("KERNELBASE.dll", "RegCreateKeyExW", (LPVOID*)& OriginalRegCreateKeyExW, HookedRegCreateKeyExW);
+	//InstallHook("KERNELBASE.dll", "RegSetValueExW", (LPVOID*)& OriginalRegSetValueExW, HookedRegSetValueExW);
+	//InstallHook("SHLWAPI.dll", "PathIsDirectoryW", (LPVOID*)& TruePathIsDirectoryW, DetourPathIsDirectoryW);
+
+	//InstallHook("ntdll.dll", "NtQueryDirectoryFile", (LPVOID*)& TrueNtQueryDirectoryFile, NewNtQueryDirectoryFile);
+	//InstallHook("ntdll.dll", "NtQueryDirectoryFileEx", (LPVOID*)& TrueNtQueryDirectoryFileEx, NewNtQueryDirectoryFileEx);
+	//InstallHook("ntdll.dll", "NtOpenFile", (LPVOID*)& TrueNtOpenFile, NewNtOpenFile);
+
+	//InstallHook("Shell32.dll", "SHOpenFolderAndSelectItems", (LPVOID*)& TrueSHOpenFolderAndSelectItems, NewSHOpenFolderAndSelectItems);
+
+	InstallHook("Shell32.dll", "SHGetIDListFromObject", (LPVOID*)& TrueSHGetIDListFromObject, HookSHGetIDListFromObject);
+
+
 
 	DetourTransactionCommit();
 }
@@ -49,6 +59,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
     {
     case DLL_PROCESS_ATTACH:
 		mainhook();
+		CreateThread(NULL, 0, CreatePipe, NULL, 0, NULL);
 		break;
     case DLL_THREAD_ATTACH:
     case DLL_THREAD_DETACH:
