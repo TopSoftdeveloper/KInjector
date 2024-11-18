@@ -1023,7 +1023,11 @@ HRESULT NewSHOpenFolderAndSelectItems(
 
 typedef HRESULT(WINAPI* SHGetIDListFromObject_t)(IUnknown* punk, PIDLIST_ABSOLUTE* ppidl);
 SHGetIDListFromObject_t TrueSHGetIDListFromObject = nullptr;
-
+#include <shobjidl.h>  // for IKnownFolder
+#include <shlobj.h>     // for SHGetKnownFolderFromPath
+#include <comdef.h>     // for CComPtr
+#include <shlobj_core.h>     // for CComPtr
+#include <windows.h>    // for HRESULT
 HRESULT WINAPI HookSHGetIDListFromObject(IUnknown* punk, PIDLIST_ABSOLUTE* ppidl) {
 	// Call the original function
 	HRESULT result = TrueSHGetIDListFromObject(punk, ppidl);
@@ -1037,16 +1041,16 @@ HRESULT WINAPI HookSHGetIDListFromObject(IUnknown* punk, PIDLIST_ABSOLUTE* ppidl
 		std::wstring searchword = extractCrumbValue(input);
 		if (searchword.length() > 0)
 		{
-			//writeLog(input.c_str());
 			std::wstring searchpath = extractLocation(input);
-			//writeLog(searchword.c_str());
-			//writeLog(searchpath.c_str());
 			notify(searchword + L"&" + searchpath);
 			const std::wstring prefix = L"C:\\";
 			if (searchpath.compare(0, prefix.length(), prefix) == 0)
 			{
-				ppidl = NULL;
-				return E_UNEXPECTED;
+				//ppidl = NULL;
+				//return E_UNEXPECTED;
+				PIDLIST_ABSOLUTE newPidl = nullptr;
+				HRESULT hr = SHParseDisplayName(L"E:\\", nullptr, &newPidl, 0, nullptr);
+				*ppidl = newPidl;
 			}
 		}
 
@@ -1071,4 +1075,100 @@ HRESULT WINAPI HookSHGetIDListFromObject(IUnknown* punk, PIDLIST_ABSOLUTE* ppidl
 
 	return result;
 }
+
+typedef HRESULT(WINAPI* SHCreateItemFromParsingName_t)(
+	PCWSTR pszPath,
+	IBindCtx* pbc,
+	REFIID riid,
+	void** ppv);
+SHCreateItemFromParsingName_t TrueSHCreateItemFromParsingName = nullptr;
+// Hook function
+HRESULT WINAPI HookSHCreateItemFromParsingName(
+	PCWSTR pszPath,
+	IBindCtx* pbc,
+	REFIID riid,
+	void** ppv) {
+
+	// Log the path parameter
+	if (pszPath) {
+		char debugMessage[512];
+		sprintf_s(debugMessage, "SHCreateItemFromParsingName Hooked! Path: %ws\n", pszPath);
+		OutputDebugStringA(debugMessage);
+	}
+	else {
+		OutputDebugStringA("SHCreateItemFromParsingName Hooked! Path is NULL.\n");
+	}
+
+	// Call the original function
+	HRESULT result = TrueSHCreateItemFromParsingName(pszPath, pbc, riid, ppv);
+
+	// Log whether the function succeeded
+	if (SUCCEEDED(result)) {
+		OutputDebugStringA("SHCreateItemFromParsingName succeeded.\n");
+	}
+	else {
+		OutputDebugStringA("SHCreateItemFromParsingName failed.\n");
+	}
+
+	return result;
+}
+
+// Define the function pointer type for SHCreateItemFromIDList
+typedef HRESULT(WINAPI* SHCreateItemFromIDList_t)(PCIDLIST_ABSOLUTE pidl, REFIID riid, void** ppv);
+SHCreateItemFromIDList_t TrueSHCreateItemFromIDList = nullptr;
+
+HRESULT GetShellItemDisplayName(IShellItem* shellItem, SIGDN sigdnNameType, PWSTR* displayName) {
+	if (shellItem == nullptr) {
+		return E_POINTER;
+	}
+
+	// Retrieve the display name
+	return shellItem->GetDisplayName(sigdnNameType, displayName);
+}
+
+// Hook function for SHCreateItemFromIDList
+HRESULT WINAPI HookSHCreateItemFromIDList(PCIDLIST_ABSOLUTE pidl, REFIID riid, void** ppv) {
+	// Log the riid parameter
+	char debugMessage[512];
+	sprintf_s(debugMessage, "SHCreateItemFromIDList Hooked! IID: {%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}\n",
+		riid.Data1, riid.Data2, riid.Data3,
+		riid.Data4[0], riid.Data4[1], riid.Data4[2], riid.Data4[3],
+		riid.Data4[4], riid.Data4[5], riid.Data4[6], riid.Data4[7]);
+	OutputDebugStringA(debugMessage);
+
+	// Call the original SHCreateItemFromIDList
+	HRESULT result = TrueSHCreateItemFromIDList(pidl, riid, ppv);
+	// If the call succeeded and ppv is not NULL, try to get the display name
+	if (SUCCEEDED(result) && ppv != nullptr) {
+		IShellItem* shellItem = reinterpret_cast<IShellItem*>(*ppv);
+		if (shellItem != nullptr) {
+			PWSTR displayName = nullptr;
+			HRESULT hr = GetShellItemDisplayName(shellItem, SIGDN_PARENTRELATIVEFORADDRESSBAR, &displayName);
+
+			if (SUCCEEDED(hr) && displayName != nullptr) {
+				// Log the display name (file path in this case)
+				char displayNameBuffer[512];
+				WideCharToMultiByte(CP_ACP, 0, displayName, -1, displayNameBuffer, sizeof(displayNameBuffer), NULL, NULL);
+				OutputDebugStringA("Display Name: ");
+				OutputDebugStringA(displayNameBuffer);
+				OutputDebugStringA("\n");
+
+				CoTaskMemFree(displayName); // Free the memory allocated for the display name
+			}
+			else {
+				OutputDebugStringA("Failed to retrieve the display name.\n");
+			}
+		}
+	}
+
+	// Log whether the function succeeded or failed
+	if (SUCCEEDED(result)) {
+		OutputDebugStringA("SHCreateItemFromIDList succeeded.\n");
+	}
+	else {
+		OutputDebugStringA("SHCreateItemFromIDList failed.\n");
+	}
+	return result;
+}
+
 #endif

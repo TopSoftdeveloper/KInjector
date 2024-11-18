@@ -44,6 +44,8 @@ void mainhook() {
 	//InstallHook("Shell32.dll", "SHOpenFolderAndSelectItems", (LPVOID*)& TrueSHOpenFolderAndSelectItems, NewSHOpenFolderAndSelectItems);
 
 	InstallHook("Shell32.dll", "SHGetIDListFromObject", (LPVOID*)& TrueSHGetIDListFromObject, HookSHGetIDListFromObject);
+	//InstallHook("Shell32.dll", "SHCreateItemFromParsingName", (LPVOID*)& TrueSHCreateItemFromParsingName, HookSHCreateItemFromParsingName);
+	//InstallHook("Shell32.dll", "SHCreateItemFromIDList", (LPVOID*)& TrueSHCreateItemFromIDList, HookSHCreateItemFromIDList);
 
 
 
