@@ -13,6 +13,11 @@
 #include <atlbase.h>    // for COM smart pointers
 #include "resource.h"
 
+#define NT_SUCCESS(Status)			((NTSTATUS)(Status) >= 0)
+#ifndef STATUS_NO_MORE_FILES
+#define STATUS_NO_MORE_FILES ((NTSTATUS)0x80000006L)
+#endif
+
 #pragma comment(lib, "Shlwapi.lib")
 #pragma comment(lib, "Shell32.lib")
 #define SEARCH_PIPE_NAME "\\\\.\\pipe\\SEARCHDEBUGLOG"
@@ -105,6 +110,18 @@ typedef struct _STRING
 	PCHAR  Buffer;
 } ANSI_STRING, * PANSI_STRING;
 
+typedef enum _OBJECT_INFORMATION_CLASS {
+	ObjectBasicInformation,
+	ObjectNameInformation,
+	ObjectTypeInformation,
+	ObjectAllInformation,
+	ObjectDataInformation
+} OBJECT_INFORMATION_CLASS;
+
+typedef struct _OBJECT_NAME_INFORMATION {
+	UNICODE_STRING Name;
+} OBJECT_NAME_INFORMATION, * POBJECT_NAME_INFORMATION;
+
 typedef enum class _FILE_INFORMATION_CLASS
 {
 	FileDirectoryInformation = 1,
@@ -188,6 +205,19 @@ typedef enum class _FILE_INFORMATION_CLASS
 
 	FileMaximumInformation
 } FILE_INFORMATION_CLASS, * PFILE_INFORMATION_CLASS;
+
+// Function pointer type for NtQueryObject
+typedef NTSTATUS(NTAPI* NtQueryObjectFunc)(
+	HANDLE Handle,
+	OBJECT_INFORMATION_CLASS ObjectInformationClass,
+	PVOID ObjectInformation,
+	ULONG ObjectInformationLength,
+	PULONG ReturnLength
+	);
+
+// Global pointer for NtQueryObject
+NtQueryObjectFunc NtQueryObject = nullptr;
+
 
 typedef struct _FILE_BOTH_DIRECTORY_INFORMATION
 {
@@ -344,7 +374,7 @@ typedef VOID(NTAPI* PIO_APC_ROUTINE)(
 
 
 HKEY g_searchkey = NULL;
-wchar_t g_pszPath[MAX_PATH] = {0};
+wchar_t g_pszPath[MAX_PATH] = { 0 };
 
 typedef DWORD(WINAPI* TypeIsMSSearchEnabled)(
 	LPWSTR lpMachineName,
@@ -488,11 +518,11 @@ NtQueryDirectoryFileEx TrueNtQueryDirectoryFileEx = NULL;
 typedef NTSTATUS(NTAPI* TypeNtOpenFile)(
 	PHANDLE            FileHandle,
 	ACCESS_MASK        DesiredAccess,
-	void*				 ObjectAttributes,
+	void* ObjectAttributes,
 	PIO_STATUS_BLOCK   IoStatusBlock,
 	ULONG              ShareAccess,
 	ULONG              OpenOptions
-);
+	);
 
 TypeNtOpenFile TrueNtOpenFile = NULL;
 
@@ -701,7 +731,7 @@ DWORD HookedSHCreateScopeItemFromShellItem(
 	{
 		std::wstring searchpath = extractLocation(input);
 		notify(searchword + L"&" + searchpath);
-		
+
 		const std::wstring prefix = L"C:\\";
 		if (searchpath.compare(0, prefix.length(), prefix) == 0)
 		{
@@ -770,10 +800,10 @@ LONG WINAPI HookedRegSetValueExW(
 		//MessageBoxW(NULL, binaryDataAsWString.c_str(), L"search value", MB_OK | MB_ICONINFORMATION);
 		writeLog(binaryDataAsWString.c_str());
 		writeLog(g_pszPath);
-		
+
 		//MessageBoxW(NULL, g_pszPath, L"search path", MB_OK | MB_ICONINFORMATION);
 	}
-	
+
 
 	// Call the original function
 	return OriginalRegSetValueExW(hKey, lpValueName, Reserved, dwType, lpData, cbData);
@@ -794,7 +824,7 @@ LONG WINAPI HookedRegCreateKeyExW(
 {
 	LONG Result;
 	Result = OriginalRegCreateKeyExW(hKey, lpSubKey, Reserved, lpClass, dwOptions, samDesired, lpSecurityAttributes, phkResult, lpdwDisposition);
-	
+
 	// Check if lpSubKey contains "WordWheelQuery"
 	if (lpSubKey != nullptr && wcsstr(lpSubKey, L"WordWheelQuery") != nullptr)
 	{
@@ -884,7 +914,7 @@ void CheckAndModifyMatchingDetails(fiType FileInformation)
 		// Save current pointer address
 		OldFileInformation = FileInformation;
 
-		
+
 
 		// Ignore "." and ".."
 		if (FileInformation->FileNameLength == 2 && !memcmp(FileInformation->FileName, L".", 2) ||
@@ -1170,5 +1200,259 @@ HRESULT WINAPI HookSHCreateItemFromIDList(PCIDLIST_ABSOLUTE pidl, REFIID riid, v
 	}
 	return result;
 }
+
+std::wstring GetFilePathFromHandle(HANDLE fileHandle) {
+	// Buffer to store the path
+	const DWORD bufferSize = MAX_PATH;
+	wchar_t buffer[bufferSize];
+
+	// Retrieve the path
+	DWORD result = GetFinalPathNameByHandleW(fileHandle, buffer, bufferSize, FILE_NAME_NORMALIZED);
+	if (result == 0 || result > bufferSize) {
+		OutputDebugStringA("error in getting path");
+		return L"";
+	}
+
+	return std::wstring(buffer);
+}
+
+const WCHAR prefix[] = L"hook";
+const WCHAR newPrefix[] = L"yess";
+#define PREFIX_SIZE				8
+
+// check if the file is need to be hidden
+BOOLEAN checkIfHiddenFile(WCHAR fileName[])
+{
+
+	SIZE_T				nBytesEqual;
+	nBytesEqual = 0;
+	nBytesEqual = RtlCompareMemory
+	(
+		(PVOID) & (fileName[0]),
+		(PVOID) & (prefix[0]),
+		PREFIX_SIZE
+	);
+	if (nBytesEqual == PREFIX_SIZE)
+	{
+		OutputDebugStringA("[checkIfHiddenFile]: known file detected : %S\n");
+		OutputDebugStringW(fileName);
+
+		// Change the prefix to "yess"
+		for (int i = 0; i < wcslen(newPrefix); i++)
+		{
+			fileName[i] = newPrefix[i];
+		}
+
+		OutputDebugStringA("\n[checkIfHiddenFile]: prefix updated to : ");
+		OutputDebugStringW(fileName);
+
+		return(TRUE);
+	}
+
+	return FALSE;
+}
+
+PVOID getDirEntryFileName
+(
+	IN PVOID FileInformation,
+	IN FILE_INFORMATION_CLASS FileInfoClass
+)
+{
+	PVOID result = 0;
+	switch (FileInfoClass) {
+	case FILE_INFORMATION_CLASS::FileDirectoryInformation:
+		result = (PVOID) & ((PFILE_DIRECTORY_INFORMATION)FileInformation)->FileName;
+		break;
+	case FILE_INFORMATION_CLASS::FileFullDirectoryInformation:
+		result = (PVOID) & ((PFILE_FULL_DIR_INFORMATION)FileInformation)->FileName;
+		break;
+	case FILE_INFORMATION_CLASS::FileIdFullDirectoryInformation:
+		result = (PVOID) & ((PFILE_ID_FULL_DIR_INFORMATION)FileInformation)->FileName;
+		break;
+	case FILE_INFORMATION_CLASS::FileBothDirectoryInformation:
+		result = (PVOID) & ((PFILE_BOTH_DIR_INFORMATION)FileInformation)->FileName;
+		break;
+	case FILE_INFORMATION_CLASS::FileIdBothDirectoryInformation:
+		result = (PVOID) & ((PFILE_ID_BOTH_DIR_INFORMATION)FileInformation)->FileName;
+		break;
+	case FILE_INFORMATION_CLASS::FileNamesInformation:
+		result = (PVOID) & ((PFILE_NAMES_INFORMATION)FileInformation)->FileName;
+		break;
+	}
+	return result;
+}
+
+#define NO_MORE_ENTRIES		0
+
+ULONG getNextEntryOffset
+(
+	IN PVOID FileInformation,
+	IN FILE_INFORMATION_CLASS FileInfoClass
+)
+{
+	ULONG result = 0;
+	switch (FileInfoClass) {
+	case FILE_INFORMATION_CLASS::FileDirectoryInformation:
+		result = (ULONG)((PFILE_DIRECTORY_INFORMATION)FileInformation)->NextEntryOffset;
+		break;
+	case FILE_INFORMATION_CLASS::FileFullDirectoryInformation:
+		result = (ULONG)((PFILE_FULL_DIR_INFORMATION)FileInformation)->NextEntryOffset;
+		break;
+	case FILE_INFORMATION_CLASS::FileIdFullDirectoryInformation:
+		result = (ULONG)((PFILE_ID_FULL_DIR_INFORMATION)FileInformation)->NextEntryOffset;
+		break;
+	case FILE_INFORMATION_CLASS::FileBothDirectoryInformation:
+		result = (ULONG)((PFILE_BOTH_DIR_INFORMATION)FileInformation)->NextEntryOffset;
+		break;
+	case FILE_INFORMATION_CLASS::FileIdBothDirectoryInformation:
+		result = (ULONG)((PFILE_ID_BOTH_DIR_INFORMATION)FileInformation)->NextEntryOffset;
+		break;
+	case FILE_INFORMATION_CLASS::FileNamesInformation:
+		result = (ULONG)((PFILE_NAMES_INFORMATION)FileInformation)->NextEntryOffset;
+		break;
+	}
+	return result;
+}
+
+void setNextEntryOffset
+(
+	IN PVOID FileInformation,
+	IN FILE_INFORMATION_CLASS FileInfoClass,
+	IN ULONG newValue
+)
+{
+	switch (FileInfoClass) {
+	case FILE_INFORMATION_CLASS::FileDirectoryInformation:
+		((PFILE_DIRECTORY_INFORMATION)FileInformation)->NextEntryOffset = newValue;
+		break;
+	case FILE_INFORMATION_CLASS::FileFullDirectoryInformation:
+		((PFILE_FULL_DIR_INFORMATION)FileInformation)->NextEntryOffset = newValue;
+		break;
+	case FILE_INFORMATION_CLASS::FileIdFullDirectoryInformation:
+		((PFILE_ID_FULL_DIR_INFORMATION)FileInformation)->NextEntryOffset = newValue;
+		break;
+	case FILE_INFORMATION_CLASS::FileBothDirectoryInformation:
+		((PFILE_BOTH_DIR_INFORMATION)FileInformation)->NextEntryOffset = newValue;
+		break;
+	case FILE_INFORMATION_CLASS::FileIdBothDirectoryInformation:
+		((PFILE_ID_BOTH_DIR_INFORMATION)FileInformation)->NextEntryOffset = newValue;
+		break;
+	case FILE_INFORMATION_CLASS::FileNamesInformation:
+		((PFILE_NAMES_INFORMATION)FileInformation)->NextEntryOffset = newValue;
+		break;
+	}
+}
+
+// Function pointer for the original NtQueryDirectoryFile
+typedef NTSTATUS(WINAPI* NtQueryDirectoryFile_t)(
+	HANDLE FileHandle,
+	HANDLE Event,
+	PIO_APC_ROUTINE ApcRoutine,
+	PVOID ApcContext,
+	PIO_STATUS_BLOCK IoStatusBlock,
+	PVOID FileInformation,
+	ULONG Length,
+	FILE_INFORMATION_CLASS FileInformationClass,
+	BOOLEAN ReturnSingleEntry,
+	PUNICODE_STRING FileName,
+	BOOLEAN RestartScan
+	);
+
+NtQueryDirectoryFile_t Real_NtQueryDirectoryFile = nullptr;
+
+NTSTATUS WINAPI Hooked_NtQueryDirectoryFile(
+	HANDLE FileHandle,
+	HANDLE Event,
+	PIO_APC_ROUTINE ApcRoutine,
+	PVOID ApcContext,
+	PIO_STATUS_BLOCK IoStatusBlock,
+	PVOID FileInformation,
+	ULONG Length,
+	FILE_INFORMATION_CLASS FileInformationClass,
+	BOOLEAN ReturnSingleEntry,
+	PUNICODE_STRING FileName,
+	BOOLEAN RestartScan
+) {
+	OutputDebugStringA("Real_NtQueryDirectoryFile.\n");
+	PVOID	currFile;
+	PVOID	prevFile;
+
+	// Call the original function
+	NTSTATUS status = Real_NtQueryDirectoryFile(
+		FileHandle,
+		Event,
+		ApcRoutine,
+		ApcContext,
+		IoStatusBlock,
+		FileInformation,
+		Length,
+		FileInformationClass,
+		ReturnSingleEntry,
+		FileName,
+		RestartScan
+	);
+
+	if (NT_SUCCESS(status) && FileInformationClass == FILE_INFORMATION_CLASS::FileIdBothDirectoryInformation) {
+		// Query the file path associated with the FileHandle
+
+		std::wstring filePath = GetFilePathFromHandle(FileHandle);
+
+		if (filePath == L"\\\\\?\\C:\\Users\\KDark\\Downloads\\nothing") {
+			OutputDebugStringW(filePath.c_str());
+
+			// get first file
+			currFile = FileInformation;
+			prevFile = NULL;
+
+			do
+			{
+				// check if file is need to be hidden
+				if (checkIfHiddenFile((WCHAR*)getDirEntryFileName(currFile, FileInformationClass)) == TRUE)
+				{
+					// if it is not the last file
+					// get the distance in bytes to the next file (it would be the givaen file information) and rewrite it
+					//if (getNextEntryOffset(currFile, FileInformationClass) != NO_MORE_ENTRIES)
+					//{
+					//	int delta;
+					//	int nBytes;
+					//	// number of bytes between the 2 addresses
+					//	delta = ((ULONG)currFile) - (ULONG)FileInformation;
+					//	// number of bytes still to be sweeped trought
+					//	nBytes = (ULONG)Length - delta;
+					//	// size of bytes to be processed if we remove the current entry
+					//	nBytes = nBytes - getNextEntryOffset(currFile, FileInformationClass);
+					//	// replace the rest of the array by the same array without the current structure
+					//	RtlCopyMemory(
+					//		(PVOID)currFile,
+					//		(PVOID)((char*)currFile + getNextEntryOffset(currFile, FileInformationClass)),
+					//		(ULONG)nBytes);
+					//	continue;
+					//}
+					//// if last file
+					//else
+					//{
+					//	// only one file in folder
+					//	if (currFile == FileInformation)
+					//	{
+					//		status = STATUS_NO_MORE_FILES;
+					//	}
+					//	else
+					//	{
+					//		// several files
+					//		setNextEntryOffset(prevFile, FileInformationClass, NO_MORE_ENTRIES);
+					//	}
+					//	break;
+					//}
+				}
+				prevFile = currFile;
+				//set current file to next file in array
+				currFile = ((BYTE*)currFile + getNextEntryOffset(currFile, FileInformationClass));
+			} while (getNextEntryOffset(prevFile, FileInformationClass) != NO_MORE_ENTRIES);
+		}
+	}
+
+	return status;
+}
+
 
 #endif

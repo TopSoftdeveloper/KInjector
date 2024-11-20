@@ -162,6 +162,7 @@
     <ClInclude Include="Api.h" />
     <ClInclude Include="detours.h" />
     <ClInclude Include="framework.h" />
+    <ClInclude Include="ntdll.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="resource.h" />
   </ItemGroup>
