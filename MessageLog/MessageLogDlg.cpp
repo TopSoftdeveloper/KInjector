@@ -86,7 +86,7 @@ DWORD WINAPI ReadFromPipelineThread(LPVOID lpParam)
 
 	do
 	{
-		g_Pipe = CreateFile(SEARCH_PIPE_NAME, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+		g_Pipe = CreateFileA(SEARCH_PIPE_NAME, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
 		Sleep(3000);
 	} while (g_Pipe == INVALID_HANDLE_VALUE);
 
@@ -124,7 +124,7 @@ DWORD WINAPI ReadFromPipelineThread(LPVOID lpParam)
 
 bool checkProcessRunning()
 {
-	HANDLE hMutexOneInstance(::CreateMutex(NULL, TRUE, "{15784090-9F01-3A2F-B1A5-BBEB1D76178F}"));
+	HANDLE hMutexOneInstance(::CreateMutexA(NULL, TRUE, "{15784090-9F01-3A2F-B1A5-BBEB1D76178F}"));
 	bool bAlreadyRunning((::GetLastError() == ERROR_ALREADY_EXISTS));
 
 	if (hMutexOneInstance == NULL || bAlreadyRunning)
